@@ -10,7 +10,9 @@ class WallpaperManager {
 
     private var player: AVQueuePlayer?
     private var looper: AVPlayerLooper?
-    private var window: NSWindow?
+    private var windows: [NSWindow] = []
+    private var playingURL: URL?
+    private var screenObserver: NSObjectProtocol?
 
     private var appSupportDir: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -20,6 +22,22 @@ class WallpaperManager {
     }
 
     private static let savedFilenameKey = "savedVideoFilename"
+
+    private init() {
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleScreenChange()
+        }
+    }
+
+    deinit {
+        if let observer = screenObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
 
     func chooseAndPlay() {
         NSApp.activate()
@@ -64,6 +82,8 @@ class WallpaperManager {
     private func play(url: URL) {
         stop()
 
+        playingURL = url
+
         let item = AVPlayerItem(url: url)
         let queuePlayer = AVQueuePlayer(playerItem: item)
         let playerLooper = AVPlayerLooper(player: queuePlayer, templateItem: item)
@@ -71,41 +91,59 @@ class WallpaperManager {
         self.player = queuePlayer
         self.looper = playerLooper
 
-        guard let screen = NSScreen.main else { return }
-
-        let playerView = AVPlayerView(frame: NSRect(origin: .zero, size: screen.frame.size))
-        playerView.player = queuePlayer
-        playerView.controlsStyle = .none
-        playerView.videoGravity = .resizeAspectFill
-        playerView.autoresizingMask = [.width, .height]
-
-        let wallpaperWindow = NSWindow(
-            contentRect: screen.frame,
-            styleMask: .borderless,
-            backing: .buffered,
-            defer: false
-        )
-        wallpaperWindow.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) - 1)
-        wallpaperWindow.isOpaque = true
-        wallpaperWindow.backgroundColor = .black
-        wallpaperWindow.ignoresMouseEvents = true
-        wallpaperWindow.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
-        wallpaperWindow.canHide = false
-        wallpaperWindow.contentView = playerView
-        wallpaperWindow.orderFront(nil)
-
-        self.window = wallpaperWindow
+        createWindows(for: queuePlayer)
 
         queuePlayer.play()
         isPlaying = true
+    }
+
+    private func createWindows(for player: AVQueuePlayer) {
+        for screen in NSScreen.screens {
+            let playerView = AVPlayerView(frame: NSRect(origin: .zero, size: screen.frame.size))
+            playerView.player = player
+            playerView.controlsStyle = .none
+            playerView.videoGravity = .resizeAspectFill
+            playerView.autoresizingMask = [.width, .height]
+
+            let wallpaperWindow = NSWindow(
+                contentRect: screen.frame,
+                styleMask: .borderless,
+                backing: .buffered,
+                defer: false
+            )
+            wallpaperWindow.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) - 1)
+            wallpaperWindow.isOpaque = true
+            wallpaperWindow.backgroundColor = .black
+            wallpaperWindow.ignoresMouseEvents = true
+            wallpaperWindow.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+            wallpaperWindow.canHide = false
+            wallpaperWindow.contentView = playerView
+            wallpaperWindow.orderFront(nil)
+
+            windows.append(wallpaperWindow)
+        }
+    }
+
+    private func handleScreenChange() {
+        guard isPlaying, let player = self.player else { return }
+
+        for window in windows {
+            window.orderOut(nil)
+        }
+        windows.removeAll()
+
+        createWindows(for: player)
     }
 
     func stop() {
         player?.pause()
         player = nil
         looper = nil
-        window?.orderOut(nil)
-        window = nil
+        playingURL = nil
+        for window in windows {
+            window.orderOut(nil)
+        }
+        windows.removeAll()
         isPlaying = false
     }
 }

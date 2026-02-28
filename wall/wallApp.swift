@@ -1,8 +1,10 @@
+import ServiceManagement
 import SwiftUI
 
 @main
 struct wallApp: App {
     @State private var manager = WallpaperManager.shared
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     init() {
         DispatchQueue.main.async {
@@ -23,6 +25,20 @@ struct wallApp: App {
             }
 
             Divider()
+
+            Toggle("Launch at Login", isOn: $launchAtLogin)
+                .onChange(of: launchAtLogin) { _, newValue in
+                    do {
+                        if newValue {
+                            try SMAppService.mainApp.register()
+                        } else {
+                            try SMAppService.mainApp.unregister()
+                        }
+                    } catch {
+                        print("Failed to update login item: \(error)")
+                        launchAtLogin = !newValue
+                    }
+                }
 
             Button("Quit") {
                 manager.stop()
