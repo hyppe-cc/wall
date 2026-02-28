@@ -50,7 +50,10 @@ class WallpaperManager {
         panel.message = "Choose a video file for your wallpaper"
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        playVideo(from: url)
+    }
 
+    func playVideo(from url: URL) {
         cleanAppSupportDir()
 
         let destination = appSupportDir.appendingPathComponent(url.lastPathComponent)
@@ -85,7 +88,8 @@ class WallpaperManager {
 
         playingURL = url
 
-        let item = AVPlayerItem(url: url)
+        let asset = AVURLAsset(url: url)
+        let item = AVPlayerItem(asset: asset)
         let queuePlayer = AVQueuePlayer(playerItem: item)
         let playerLooper = AVPlayerLooper(player: queuePlayer, templateItem: item)
 
@@ -138,29 +142,34 @@ class WallpaperManager {
     }
 
     private func setBlurredWallpaper(from url: URL) {
-        // Extract frame at time 0
-        let asset = AVAsset(url: url)
+        let asset = AVURLAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
 
-        let cgImage: CGImage
-        do {
-            cgImage = try generator.copyCGImage(at: .zero, actualTime: nil)
-        } catch {
-            print("Failed to extract frame: \(error)")
-            return
+        generator.generateCGImageAsynchronously(for: .zero) { [weak self] image, _, error in
+            if let error {
+                print("Failed to extract frame: \(error)")
+                return
+            }
+            guard let self, let image else { return }
+            self.applyBlurredWallpaper(from: image)
         }
+    }
 
-        // Blur the frame
+    private func applyBlurredWallpaper(from cgImage: CGImage) {
         let ciImage = CIImage(cgImage: cgImage)
+        let extent = ciImage.extent
+
+        // Clamp edges to avoid dark border artifacts from blur
+        let clamped = ciImage.clampedToExtent()
+
         guard let blurFilter = CIFilter(name: "CIGaussianBlur") else { return }
-        blurFilter.setValue(ciImage, forKey: kCIInputImageKey)
+        blurFilter.setValue(clamped, forKey: kCIInputImageKey)
         blurFilter.setValue(40.0, forKey: kCIInputRadiusKey)
 
         guard let blurredOutput = blurFilter.outputImage else { return }
 
-        // Crop to original extent (blur expands edges)
-        let cropped = blurredOutput.cropped(to: ciImage.extent)
+        let cropped = blurredOutput.cropped(to: extent)
 
         let context = CIContext()
         guard let renderedCG = context.createCGImage(cropped, from: cropped.extent) else { return }
