@@ -1,5 +1,6 @@
 import AVKit
 import AppKit
+import CoreImage
 import Observation
 
 @Observable
@@ -93,6 +94,7 @@ class WallpaperManager {
 
         createWindows(for: queuePlayer)
 
+        setBlurredWallpaper(from: url)
         queuePlayer.play()
         isPlaying = true
     }
@@ -133,6 +135,51 @@ class WallpaperManager {
         windows.removeAll()
 
         createWindows(for: player)
+    }
+
+    private func setBlurredWallpaper(from url: URL) {
+        // Extract frame at time 0
+        let asset = AVAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+
+        let cgImage: CGImage
+        do {
+            cgImage = try generator.copyCGImage(at: .zero, actualTime: nil)
+        } catch {
+            print("Failed to extract frame: \(error)")
+            return
+        }
+
+        // Blur the frame
+        let ciImage = CIImage(cgImage: cgImage)
+        guard let blurFilter = CIFilter(name: "CIGaussianBlur") else { return }
+        blurFilter.setValue(ciImage, forKey: kCIInputImageKey)
+        blurFilter.setValue(40.0, forKey: kCIInputRadiusKey)
+
+        guard let blurredOutput = blurFilter.outputImage else { return }
+
+        // Crop to original extent (blur expands edges)
+        let cropped = blurredOutput.cropped(to: ciImage.extent)
+
+        let context = CIContext()
+        guard let renderedCG = context.createCGImage(cropped, from: cropped.extent) else { return }
+
+        // Save as PNG with unique name so macOS detects the change
+        let pngURL = appSupportDir.appendingPathComponent("blurred_wallpaper_\(UUID().uuidString).png")
+        let rep = NSBitmapImageRep(cgImage: renderedCG)
+        guard let pngData = rep.representation(using: .png, properties: [:]) else { return }
+        do {
+            try pngData.write(to: pngURL)
+        } catch {
+            print("Failed to write blurred wallpaper: \(error)")
+            return
+        }
+
+        // Set native wallpaper on all screens
+        for screen in NSScreen.screens {
+            try? NSWorkspace.shared.setDesktopImageURL(pngURL, for: screen, options: [:])
+        }
     }
 
     func stop() {
