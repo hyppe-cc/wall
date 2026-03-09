@@ -8,12 +8,17 @@ class WallpaperManager {
     static let shared = WallpaperManager()
 
     var isPlaying = false
+    var isVisible = true
 
     private var player: AVQueuePlayer?
     private var looper: AVPlayerLooper?
     private var windows: [NSWindow] = []
     private var playingURL: URL?
     private var screenObserver: NSObjectProtocol?
+    private var sleepObserver: NSObjectProtocol?
+    private var wakeObserver: NSObjectProtocol?
+    private var lockObserver: NSObjectProtocol?
+    private var unlockObserver: NSObjectProtocol?
 
     private var appSupportDir: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -32,11 +37,59 @@ class WallpaperManager {
         ) { [weak self] _ in
             self?.handleScreenChange()
         }
+
+        // Pause on display sleep
+        sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.screensDidSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.pausePlayback()
+        }
+
+        // Resume on display wake
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.resumePlayback()
+        }
+
+        // Pause on screen lock
+        lockObserver = DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("com.apple.screenIsLocked"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.pausePlayback()
+        }
+
+        // Resume on screen unlock
+        unlockObserver = DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("com.apple.screenIsUnlocked"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.resumePlayback()
+        }
     }
 
     deinit {
         if let observer = screenObserver {
             NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = sleepObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        if let observer = wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        if let observer = lockObserver {
+            DistributedNotificationCenter.default().removeObserver(observer)
+        }
+        if let observer = unlockObserver {
+            DistributedNotificationCenter.default().removeObserver(observer)
         }
     }
 
@@ -101,6 +154,7 @@ class WallpaperManager {
         setBlurredWallpaper(from: url)
         queuePlayer.play()
         isPlaying = true
+        isVisible = true
     }
 
     private func createWindows(for player: AVQueuePlayer) {
@@ -191,6 +245,33 @@ class WallpaperManager {
         }
     }
 
+    func toggleVisibility() {
+        guard isPlaying else { return }
+        if isVisible {
+            player?.pause()
+            for window in windows {
+                window.orderOut(nil)
+            }
+            isVisible = false
+        } else {
+            for window in windows {
+                window.orderFront(nil)
+            }
+            player?.play()
+            isVisible = true
+        }
+    }
+
+    private func pausePlayback() {
+        guard isPlaying, isVisible else { return }
+        player?.pause()
+    }
+
+    private func resumePlayback() {
+        guard isPlaying, isVisible else { return }
+        player?.play()
+    }
+
     func stop() {
         player?.pause()
         player = nil
@@ -201,5 +282,6 @@ class WallpaperManager {
         }
         windows.removeAll()
         isPlaying = false
+        isVisible = false
     }
 }

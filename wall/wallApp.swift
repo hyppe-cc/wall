@@ -37,9 +37,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(chooseItem)
 
         if WallpaperManager.shared.isPlaying {
-            let stopItem = NSMenuItem(title: "Stop Wallpaper", action: #selector(stopWallpaper), keyEquivalent: "")
-            stopItem.target = self
-            menu.addItem(stopItem)
+            let title = WallpaperManager.shared.isVisible ? "Show Background" : "Show Video"
+            let toggleItem = NSMenuItem(title: title, action: #selector(toggleVideo), keyEquivalent: "")
+            toggleItem.target = self
+            menu.addItem(toggleItem)
         }
 
         menu.addItem(.separator())
@@ -62,8 +63,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         WallpaperManager.shared.chooseAndPlay()
     }
 
-    @objc private func stopWallpaper() {
-        WallpaperManager.shared.stop()
+    @objc private func toggleVideo() {
+        WallpaperManager.shared.toggleVisibility()
     }
 
     @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
